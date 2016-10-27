@@ -4,7 +4,10 @@ import urllib2
 import httplib
 import chardet
 import csv
+import pdfkit
 from bs4 import BeautifulSoup
+from selenium import webdriver
+#from xhtml2pdf import pisa
 
 httplib.HTTPConnection._http_vsn = 10
 httplib.HTTPConnection._http_vsn_str = 'HTTP/1.0'
@@ -14,6 +17,7 @@ Ref:
 基于 http://webcache.googleusercontent.com/search?q=cache:GCsJ6iNTfzoJ:www.lai18.com/content/1724530.html+&cd=10&hl=en&ct=clnk&gl=us
 http://www.tqcto.com/article/code/286211.html
 beautifulsoup: https://www.crummy.com/software/BeautifulSoup/bs4/doc.zh/
+pdfkit: https://pypi.python.org/pypi/pdfkit
 
 '''
 
@@ -159,7 +163,7 @@ def search(key_word):
 
     search_url='http://news.baidu.com/ns?word=key_word&tn=news&from=news&cl=2&rn=20&ct=1'
     req=urllib2.urlopen(search_url.replace('key_word',key_word))
-    real_visited=70#已扒的txt数量
+    real_visited=0#已扒的txt数量
     for count in range(15):#前10页
         html=req.read()
         #print(html)
@@ -194,7 +198,7 @@ def search(key_word):
                 #第i篇新闻，filename="D:\\Python27\\tiaozhanbei\\newscn\\%d.txt"%(i)
                 #file = open(filename,'w'),一个txt一篇新闻
                 real_visited+=1
-                file_name=r"/Users/hanyexu/Desktop/news/%d.txt"%(real_visited)
+                file_name=r"/Users/hanyexu/Desktop/news/txts/%d.txt"%(real_visited)
                 file = open(file_name,'w')#file是保留字吗？为什么可以用file这个变量（还是仅此一个变量）？
                 file.write(contenttitle.encode('utf-8'))
                 file.write(u'\n')
@@ -209,6 +213,30 @@ def search(key_word):
                 csv_content.append(contentauthor.encode("utf-8"))
                 csv_content.append(contenttime.encode("utf-8"))
                 csv_content.append(contentlink)
+
+                # #save pdf
+                options = {
+                    'quiet': '',
+                    'no-background': '',
+                    'disable-external-links':'',
+                    'disable-forms': '',
+                    'no-images': '',
+                    'disable-internal-links': '',
+                    'load-error-handling':'skip',
+                    'disable-local-file-access':''
+                }
+                pdf_name=r"/Users/hanyexu/Desktop/news/pdfs/%d.pdf"%(real_visited)
+                try:
+                    pdfkit.from_url(contentlink, pdf_name,options=options)
+                    #pdfkit.from_url('baidu.com', 'out.pdf')
+                except Exception:
+                    print("wkhtmltopdf Exception!")
+
+                # -- test for PhantomJS
+                # driver = webdriver.PhantomJS() # or add to your PATH
+                # driver.set_window_size(1024, 768) # optional
+                # driver.get('https://google.com/')
+                # driver.save_screenshot('screen.png') # save a screenshot to disk
 
                 extract_news_content(contentlink,file_name,csv_content)#还写入文件
                 visited_url_list.append(contentlink)#访问之
