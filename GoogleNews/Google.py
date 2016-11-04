@@ -6,7 +6,9 @@ import gnp
 import csv
 import chardet
 import pdfkit
+import articleDateExtractor
 from bs4 import BeautifulSoup
+from selenium import webdriver
 import codecs
 import json
 
@@ -14,13 +16,30 @@ import json
 used gnp api for google news crawler
 Please install gnp 0.0.4 first
 Ref: http://mpand.github.io/gnp/
+Ref: https://github.com/Webhose/article-date-extractor
 '''
 
-# c = gnp.get_google_news_query("religion")
-# j = json.dumps(c, indent=4, ensure_ascii=False )
-# f = codecs.open( 'news.json', 'w', encoding='utf-8')
-# f.write(j.decode('utf-8'))
-# f.close()
+# used for generating pdf for each url
+#execute function for phantomJS
+# def execute(script, args):
+#     driver.execute('executePhantomScript', {'script': script, 'args' : args })
+
+#function to generate pdfs
+def generatePDF(weburl, filename):
+    #driver for phantomJS
+    driver = webdriver.PhantomJS('phantomjs')
+    driver.command_executor._commands['executePhantomScript'] = ('POST', '/session/$sessionId/phantom/execute')
+    driver.get(weburl)
+    pageFormat = '''this.paperSize = {format: "A4", orientation: "portrait" };'''
+    driver.execute('executePhantomScript', {'script': pageFormat, 'args' : [] })
+    #execute(pageFormat, [])
+
+    pdfpath = "/Users/hanyexu/Desktop/newsgoo/pdfs/%d.pdf"%(filename)
+
+    render = '''this.render("%s")'''%(pdfpath)
+    driver.execute('executePhantomScript', {'script': render, 'args' : [] })
+    #execute(render, [])
+
 
 #提取网页正文，放入txt中
 def remove_js_css (content):
@@ -130,6 +149,8 @@ def extract_news_content(web_url, csv_content):
     if html!=None and infoencode!=None:#提取内容不为空，error.或者用else
         html = html.decode(infoencode,'ignore')
         soup=BeautifulSoup(html,"html.parser")
+        for i in soup.findAll(re.compile('Published')):
+            print(i)
         content=soup.renderContents()
         content=soup.prettify()
         content_text=extract(content)#提取新闻网页中的正文部分，化为无换行的一段文字
@@ -151,6 +172,7 @@ def search(key_word):
     #setting up the csv file
     csv_name=r"/Users/hanyexu/Desktop/newsgoo/rst.csv"
     ftmp = open(csv_name,'wb')
+    ftmp.write('\xEF\xBB\xBF')
     writer=csv.writer(ftmp)
     csv_header=[]
     csv_header.append('title')
@@ -174,42 +196,42 @@ def search(key_word):
         content=item['content_snippet']
         content=content.decode('utf-8', 'ignore')
 
+        #get the article time
+        contenttime = articleDateExtractor.extractArticlePublishedDate(contentlink)
+
         # save to csv
         csv_content.append(contenttitle.encode("utf-8"))
         csv_content.append(contentauthor.encode("utf-8"))
-        csv_content.append(" ")
+        csv_content.append(contenttime)
         csv_content.append(contentlink)
         #csv_content.append(content.encode("utf-8"))
 
         extract_news_content(contentlink,csv_content)#还写入文件
 
         # #save pdf
-        options = {
-            'quiet': '',
-            'no-background': '',
-            'disable-external-links':'',
-            'disable-forms': '',
-            'no-images': '',
-            'disable-internal-links': '',
-            'load-error-handling':'skip',
-            'disable-local-file-access':''
-        }
-        pdf_name=r"/Users/hanyexu/Desktop/newsgoo/pdfs/%d.pdf"%(i+1)
-        try:
-            pdfkit.from_url(contentlink, pdf_name,options=options)
-            #pdfkit.from_url('baidu.com', 'out.pdf')
-        except Exception:
-            print("wkhtmltopdf Exception!")
+        # options = {
+        #     'quiet': '',
+        #     'no-background': '',
+        #     'disable-external-links':'',
+        #     'disable-forms': '',
+        #     'no-images': '',
+        #     'disable-internal-links': '',
+        #     'load-error-handling':'skip',
+        #     'disable-local-file-access':''
+        # }
+        # pdf_name=r"/Users/hanyexu/Desktop/newsgoo/pdfs/%d.pdf"%(i+1)
+        # try:
+        #     pdfkit.from_url(contentlink, pdf_name,options=options)
+        #     #pdfkit.from_url('baidu.com', 'out.pdf')
+        # except Exception:
+        #     print("wkhtmltopdf Exception!")
+
+        #save pdf
+        generatePDF(contentlink, i+1)
 
         writer.writerow(csv_content)
 
     ftmp.close()
-
-
-
-
-
-
 
 if __name__=='__main__':
     print('Start search for news from news.google.com. Please make sure the directory is correct for storage.')

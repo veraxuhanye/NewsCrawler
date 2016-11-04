@@ -1,12 +1,16 @@
 #coding:utf-8
 import re
+import io
 import urllib2
 import httplib
 import chardet
 import csv
+import time
 import pdfkit
+import articleDateExtractor
 from bs4 import BeautifulSoup
 from selenium import webdriver
+from selenium.common.exceptions import TimeoutException
 #from xhtml2pdf import pisa
 
 httplib.HTTPConnection._http_vsn = 10
@@ -20,6 +24,30 @@ beautifulsoup: https://www.crummy.com/software/BeautifulSoup/bs4/doc.zh/
 pdfkit: https://pypi.python.org/pypi/pdfkit
 
 '''
+
+#function to generate pdfs
+def generatePDF(weburl, filename):
+
+    t = time.time()
+    #driver for phantomJS
+    #driver = webdriver.PhantomJS(service_args=['--ignore-ssl-errors=true', '--ssl-protocol=ANY'])
+    driver.command_executor._commands['executePhantomScript'] = ('POST', '/session/$sessionId/phantom/execute')
+    #driver.get(weburl)
+    driver.set_page_load_timeout(10)
+    try:
+        driver.get(weburl)
+    except TimeoutException:
+        driver.execute_script("window.stop();")
+        print("time out for loading web page")
+    pageFormat = '''this.paperSize = {format: "A4", orientation: "portrait" };'''
+    driver.execute('executePhantomScript', {'script': pageFormat, 'args' : [] })
+    #execute(pageFormat, [])
+
+    pdfpath = "/Users/hanyexu/Desktop/news/pdfs/%s.pdf"%(filename)
+
+    render = '''this.render("%s")'''%(pdfpath)
+    driver.execute('executePhantomScript', {'script': render, 'args' : [] })
+    #execute(render, [])
 
 #提取网页正文，放入txt中
 def remove_js_css (content):
@@ -105,7 +133,7 @@ def extract (content):
     return '\n'.join(content.split('\n')[left:right])
 
 #输入url，将其新闻页的正文输入txt
-def extract_news_content(web_url,file_name, csv_content):
+def extract_news_content(web_url, csv_content):
     request = urllib2.Request(web_url)
 
     #在请求加上头信息，伪装成浏览器访问
@@ -138,33 +166,38 @@ def extract_news_content(web_url,file_name, csv_content):
         content_text= re.sub("\n","",content_text)
         content_text= re.sub(" ","",content_text)
         print(content_text)
-        file = open(file_name,'a')#append
-        file.write(content_text.encode('utf-8'))
-        file.close()
+        # file = open(file_name,'a')#append
+        # file.write(content_text.encode('utf-8'))
+        # file.close()
 
         csv_content.append(content_text.encode("utf-8"))
 
 #抓取百度新闻搜索结果:中文搜索，前10页，
-def search(key_word):
+def search(key_word, cateLabel):
 
     '''
     write to csv file
     '''
     csv_name=r"/Users/hanyexu/Desktop/news/rst.csv"
-    ftmp = open(csv_name,'wb')
+    ftmp = open(csv_name,'a')
+    # ftmp.write('\xEF\xBB\xBF')
     writer=csv.writer(ftmp)
-    csv_header=[]
-    csv_header.append('title')
-    csv_header.append('author')
-    csv_header.append('time')
-    csv_header.append('url')
-    csv_header.append('context')
-    writer.writerow(csv_header)
+    # csv_header=[]
+    # csv_header.append('Number')
+    # csv_header.append('Category')
+    # csv_header.append('Keyword')
+    # csv_header.append('title')
+    # csv_header.append('author')
+    # csv_header.append('time')
+    # csv_header.append('url')
+    # csv_header.append('context')
+    # writer.writerow(csv_header)
+
 
     search_url='http://news.baidu.com/ns?word=key_word&tn=news&from=news&cl=2&rn=20&ct=1'
     req=urllib2.urlopen(search_url.replace('key_word',key_word))
     real_visited=0#已扒的txt数量
-    for count in range(15):#前10页
+    for count in range(5):#前10页
         html=req.read()
         #print(html)
         soup=BeautifulSoup(html,"html.parser")
@@ -198,47 +231,49 @@ def search(key_word):
                 #第i篇新闻，filename="D:\\Python27\\tiaozhanbei\\newscn\\%d.txt"%(i)
                 #file = open(filename,'w'),一个txt一篇新闻
                 real_visited+=1
-                file_name=r"/Users/hanyexu/Desktop/news/txts/%d.txt"%(real_visited)
-                file = open(file_name,'w')#file是保留字吗？为什么可以用file这个变量（还是仅此一个变量）？
-                file.write(contenttitle.encode('utf-8'))
-                file.write(u'\n')
-                file.write(contentauthor.encode('utf-8'))
-                file.write(u'\n')
-                file.write(contenttime.encode('utf-8'))
-                file.write(u'\n'+contentlink+u'\n')
-                file.close()
+                # file_name=r"/Users/hanyexu/Desktop/news/txts/%s_%d.txt"%(key_word,real_visited)
+                # file = open(file_name,'w')#file是保留字吗？为什么可以用file这个变量（还是仅此一个变量）？
+                # file.write(contenttitle.encode('utf-8'))
+                # file.write(u'\n')
+                # file.write(contentauthor.encode('utf-8'))
+                # file.write(u'\n')
+                # file.write(contenttime.encode('utf-8'))
+                # file.write(u'\n'+contentlink+u'\n')
+                # file.close()
 
                 # save to csv
+                csv_content.append(real_visited)
+                csv_content.append(cateLabel.encode("utf-8"))
+                csv_content.append(urllib2.unquote(key_word))
                 csv_content.append(contenttitle.encode("utf-8"))
                 csv_content.append(contentauthor.encode("utf-8"))
                 csv_content.append(contenttime.encode("utf-8"))
                 csv_content.append(contentlink)
 
                 # #save pdf
-                options = {
-                    'quiet': '',
-                    'no-background': '',
-                    'disable-external-links':'',
-                    'disable-forms': '',
-                    'no-images': '',
-                    'disable-internal-links': '',
-                    'load-error-handling':'skip',
-                    'disable-local-file-access':''
-                }
-                pdf_name=r"/Users/hanyexu/Desktop/news/pdfs/%d.pdf"%(real_visited)
-                try:
-                    pdfkit.from_url(contentlink, pdf_name,options=options)
-                    #pdfkit.from_url('baidu.com', 'out.pdf')
-                except Exception:
-                    print("wkhtmltopdf Exception!")
+                # options = {
+                #     'quiet': '',
+                #     'no-background': '',
+                #     'disable-external-links':'',
+                #     'disable-forms': '',
+                #     'no-images': '',
+                #     'disable-internal-links': '',
+                #     'load-error-handling':'skip',
+                #     'disable-local-file-access':''
+                # }
+                # pdf_name=r"/Users/hanyexu/Desktop/news/pdfs/%s_%d.pdf"%(urllib2.unquote(key_word),real_visited)
+                # try:
+                #     pdfkit.from_url(contentlink, pdf_name,options=options)
+                #     #pdfkit.from_url('baidu.com', 'out.pdf')
+                # except Exception:
+                #     print("wkhtmltopdf Exception!")
 
-                # -- test for PhantomJS
-                # driver = webdriver.PhantomJS() # or add to your PATH
-                # driver.set_window_size(1024, 768) # optional
-                # driver.get('https://google.com/')
-                # driver.save_screenshot('screen.png') # save a screenshot to disk
+                # save pdf use PhantomJS
+                pdfname = "%s_%d"%(urllib2.unquote(key_word),real_visited)
+                generatePDF(contentlink, pdfname)
 
-                extract_news_content(contentlink,file_name,csv_content)#还写入文件
+
+                extract_news_content(contentlink,csv_content)#还写入文件
                 visited_url_list.append(contentlink)#访问之
                 visited_url=open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','a')#标记为已访问，永久存防止程序停止后丢失
                 visited_url.write(contentlink+u'\n')
@@ -246,10 +281,11 @@ def search(key_word):
 
                 # test for write to csv
                 writer.writerow(csv_content)
-            if len(visited_url_list)>=120:
+
+            if len(visited_url_list)>=100:
                 break
             #解析下一页
-        if len(visited_url_list)>=120:
+        if len(visited_url_list)>=100:
             break
         if count==0:
             next_num=0
@@ -259,9 +295,76 @@ def search(key_word):
         print next_page
         req=urllib2.urlopen(next_page)
     ftmp.close()
+    open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','w').close() # reset the visited link for a new keyword
+
 
 if __name__=='__main__':
+
     print('Start search for news from news.baidu.com. Please make sure the directory is correct for storage.')
-    raw_word=raw_input('input key word:')
-    key_word=urllib2.quote(raw_word)
-    search(key_word)
+    #init the csv file
+    csv_name=r"/Users/hanyexu/Desktop/news/rst.csv"
+
+    ftmp = open(csv_name,'wb')
+    ftmp.write('\xEF\xBB\xBF') # must include this for chinese
+    writer=csv.writer(ftmp)
+    csv_header=[]
+    csv_header.append('Number')
+    csv_header.append('Category')
+    csv_header.append('Keyword')
+    csv_header.append('title')
+    csv_header.append('author')
+    csv_header.append('time')
+    csv_header.append('url')
+    csv_header.append('context')
+    writer.writerow(csv_header)
+    ftmp.close()
+
+    raw_word=raw_input('input key word:') #get the keyword from type in
+
+    driver = webdriver.PhantomJS(service_args=['--ignore-ssl-errors=true', '--ssl-protocol=ANY'])
+
+    if(raw_word == ""):
+        keywords = open('./keywords', 'r')
+        keyword = keywords.readline().rstrip()
+        while(keyword):
+
+            if keyword == "General":
+                cateLabel = "General"
+                keyword = keywords.readline().rstrip()
+                continue
+            elif keyword == "Buddhism":
+                cateLabel = "Buddhism"
+                keyword = keywords.readline().rstrip()
+                continue
+            elif keyword == "Islam":
+                cateLabel = "Islam"
+                keyword = keywords.readline().rstrip()
+                continue
+            elif keyword == "Daoism":
+                cateLabel = "Daoism"
+                keyword = keywords.readline().rstrip()
+                continue
+            elif keyword == "Christianity":
+                cateLabel = "Christianity"
+                keyword = keywords.readline().rstrip()
+                continue
+            elif keyword == "Confucian":
+                cateLabel = "Confucian"
+                keyword = keywords.readline().rstrip()
+                continue
+            elif keyword == "Black":
+                cateLabel = "Black"
+                keyword = keywords.readline().rstrip()
+                continue
+            elif keyword == "":
+                keyword = keywords.readline().rstrip()
+                continue
+            key_word=urllib2.quote(keyword)
+            search(key_word, cateLabel)
+            keyword = keywords.readline().rstrip()
+        keywords.close()
+
+    else:
+        key_word=urllib2.quote(raw_word)
+        cateLabel = "Unknown"
+        search(key_word, cateLabel)
