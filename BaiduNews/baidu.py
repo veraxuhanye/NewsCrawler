@@ -6,9 +6,12 @@ import httplib
 import chardet
 import csv
 import time
+import datetime
+import socket
 import pdfkit
 import articleDateExtractor
 from bs4 import BeautifulSoup
+from textrank4zh import TextRank4Keyword, TextRank4Sentence
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
 #from xhtml2pdf import pisa
@@ -22,6 +25,7 @@ Ref:
 http://www.tqcto.com/article/code/286211.html
 beautifulsoup: https://www.crummy.com/software/BeautifulSoup/bs4/doc.zh/
 pdfkit: https://pypi.python.org/pypi/pdfkit
+TextRank4ZH: https://github.com/letiantian/TextRank4ZH
 
 '''
 
@@ -140,16 +144,21 @@ def extract_news_content(web_url, csv_content):
     request.add_header('User-Agent','Mozilla/5.0 (Windows; U; Windows NT 6.1; en-US; rv:1.9.1.6) Gecko/20091201 Firefox/3.5.6')
     opener = urllib2.build_opener()
     try:
-        html= opener.open(request).read()
+        html= opener.open(request, timeout=2).read()
     except urllib2.HTTPError, e:
-        print('HTTPError = ' + str(e.code))
+        print('1.HTTPError = ' + str(e.code))
         return
     except urllib2.URLError, e:
-        print('URLError = ' + str(e.reason))
+        if isinstance(e.reason, socket.timeout):
+            print("1.URLE timeout1")
+        print('1.URLError = ' + str(e.reason))
+        return
+    except socket.timeout, e:
+        print("1.URLE timeout2")
         return
     except Exception:
         import traceback
-        print('generic exception: ' + traceback.format_exc())
+        print('1.generic exception: ' + traceback.format_exc())
         return
 
     infoencode = chardet.detect(html)['encoding']##通过第3方模块来自动提取网页的编码
@@ -165,12 +174,25 @@ def extract_news_content(web_url, csv_content):
         content_text= re.sub("<[^>]*>","",content_text)
         content_text= re.sub("\n","",content_text)
         content_text= re.sub(" ","",content_text)
-        print(content_text)
+        #print(content_text)
+
+        # start analysis text
+        encodetext = content_text
+        tr4w.analyze(text=encodetext, lower=True, window=2)
+        LWords = set()
+        for words in tr4w.words_no_stop_words:
+            for word in words:
+                if word in LocationDic:
+                    LWords.add(word)
+
+        LString = "/".join(LWords)
         # file = open(file_name,'a')#append
         # file.write(content_text.encode('utf-8'))
         # file.close()
 
+        csv_content.append(LString.encode("utf-8"))
         csv_content.append(content_text.encode("utf-8"))
+
 
 #抓取百度新闻搜索结果:中文搜索，前10页，
 def search(key_word, cateLabel):
@@ -193,11 +215,36 @@ def search(key_word, cateLabel):
     # csv_header.append('context')
     # writer.writerow(csv_header)
 
-
     search_url='http://news.baidu.com/ns?word=key_word&tn=news&from=news&cl=2&rn=20&ct=1'
-    req=urllib2.urlopen(search_url.replace('key_word',key_word))
+    try:
+        req=urllib2.urlopen(search_url.replace('key_word',key_word))
+    except urllib2.HTTPError, e:
+        print('2.HTTPError = ' + str(e.code))
+        ftmp.close()
+        open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','w').close() # reset the visited link for a new keyword
+        return
+    except urllib2.URLError, e:
+        if isinstance(e.reason, socket.timeout):
+            print("2.URLE timeout1")
+        print('2.URLError = ' + str(e.reason))
+        ftmp.close()
+        open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','w').close() # reset the visited link for a new keyword
+        return
+    except socket.timeout, e:
+        print("2.URLE timeout2")
+        ftmp.close()
+        open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','w').close() # reset the visited link for a new keyword
+        return
+    except Exception:
+        import traceback
+        print('2.generic exception: ' + traceback.format_exc())
+        ftmp.close()
+        open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','w').close() # reset the visited link for a new keyword
+        return
+
     real_visited=0#已扒的txt数量
-    for count in range(5):#前10页
+    for count in range(8):#前10页
+        cntTR = 0 # a variable to count time range for every page
         html=req.read()
         #print(html)
         soup=BeautifulSoup(html,"html.parser")
@@ -223,10 +270,33 @@ def search(key_word, cateLabel):
                     exist=1
             if exist!=1:#如果未被访问url
                 p_str2= content[i].find('p').renderContents()
-                print(p_str2)
+                #print(p_str2)
                 contentauthor=p_str2[:p_str2.find('  ')]#来源
                 contentauthor=contentauthor.decode('utf-8', 'ignore')#时
                 contenttime=p_str2[p_str2.find('  ')+len('  '):]
+                if "小时前" in contenttime:
+                    contenttime = datetime.datetime.now().strftime("%Y年%m月%d日")
+                if "年" in contenttime and "月" in contenttime:
+                    yearnum = contenttime.split('年')[0]
+                    monthnum = contenttime.split('年')[1].split('月')[0]
+                else:
+                    print "time format error", p_str2
+                    continue
+
+                print(p_str2)
+
+                #hard code for date check for now !! TODO
+                if yearnum == str('2016') and monthnum == str('11'):
+                    continue #skip this month
+                elif yearnum != str('2016') or monthnum != str('10'):
+                    cntTR += 1
+                    if cntTR == 3:
+                        ftmp.close()
+                        open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','w').close() # reset the visited link for a new keyword
+                        return
+                    continue
+
+
                 contenttime=contenttime.decode('utf-8', 'ignore')
                 #第i篇新闻，filename="D:\\Python27\\tiaozhanbei\\newscn\\%d.txt"%(i)
                 #file = open(filename,'w'),一个txt一篇新闻
@@ -269,8 +339,8 @@ def search(key_word, cateLabel):
                 #     print("wkhtmltopdf Exception!")
 
                 # save pdf use PhantomJS
-                pdfname = "%s_%d"%(urllib2.unquote(key_word),real_visited)
-                generatePDF(contentlink, pdfname)
+                #pdfname = "%s_%d"%(urllib2.unquote(key_word),real_visited)
+                #generatePDF(contentlink, pdfname)
 
 
                 extract_news_content(contentlink,csv_content)#还写入文件
@@ -282,18 +352,50 @@ def search(key_word, cateLabel):
                 # test for write to csv
                 writer.writerow(csv_content)
 
-            if len(visited_url_list)>=100:
+                print '%s - %d' % (urllib2.unquote(key_word),real_visited)
+
+            if real_visited >=100:
                 break
             #解析下一页
-        if len(visited_url_list)>=100:
+        if real_visited >=100:
             break
         if count==0:
             next_num=0
         else:
             next_num=1
-        next_page='http://news.baidu.com'+soup('a',{'href':True,'class':'n'})[next_num]['href'] # search for the next page
+        try:
+            next_page='http://news.baidu.com'+soup('a',{'href':True,'class':'n'})[next_num]['href'] # search for the next page
+        except IndexError:
+            print "no next page!!!"
+            return
         print next_page
-        req=urllib2.urlopen(next_page)
+        try:
+            req=urllib2.urlopen(next_page)
+        except urllib2.HTTPError, e:
+            print('3.HTTPError = ' + str(e.code))
+            ftmp.close()
+            open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','w').close() # reset the visited link for a new keyword
+            return
+        except urllib2.URLError, e:
+            if isinstance(e.reason, socket.timeout):
+                print("3.URLE timeout1")
+            print('3.URLError = ' + str(e.reason))
+            ftmp.close()
+            open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','w').close() # reset the visited link for a new keyword
+            return
+        except socket.timeout, e:
+            print("3.URLE timeout2")
+            ftmp.close()
+            open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','w').close() # reset the visited link for a new keyword
+            return
+        except Exception:
+            import traceback
+            print('3.generic exception: ' + traceback.format_exc())
+            ftmp.close()
+            open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','w').close() # reset the visited link for a new keyword
+            return
+
+
     ftmp.close()
     open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','w').close() # reset the visited link for a new keyword
 
@@ -315,13 +417,24 @@ if __name__=='__main__':
     csv_header.append('author')
     csv_header.append('time')
     csv_header.append('url')
+    csv_header.append('locations')
     csv_header.append('context')
     writer.writerow(csv_header)
     ftmp.close()
 
+    #build a dictionary for provinces and cities
+    LocationDic = {}
+    ltmp = open('./LName', 'r')
+    lname = ltmp.readline().rstrip().decode('utf-8')
+    while(lname):
+        LocationDic[lname] = 1
+        lname = ltmp.readline().rstrip().decode('utf-8')
+    ltmp.close()
+
     raw_word=raw_input('input key word:') #get the keyword from type in
 
-    driver = webdriver.PhantomJS(service_args=['--ignore-ssl-errors=true', '--ssl-protocol=ANY'])
+    #driver = webdriver.PhantomJS(service_args=['--ignore-ssl-errors=true', '--ssl-protocol=ANY']) #for pdf generation
+    tr4w = TextRank4Keyword() #for text NLP analysis
 
     if(raw_word == ""):
         keywords = open('./keywords', 'r')
