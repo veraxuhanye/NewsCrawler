@@ -1,6 +1,7 @@
 #coding:utf-8
 import re
 import io
+import os
 import urllib2
 import httplib
 import chardet
@@ -195,12 +196,14 @@ def extract_news_content(web_url, csv_content):
 
 
 #抓取百度新闻搜索结果:中文搜索，前10页，
-def search(key_word, cateLabel):
+def search(key_word, cateLabel, csv_name, rawmon, rawyear):
+
+    cwd = os.getcwd() # get current path pwd
 
     '''
     write to csv file
     '''
-    csv_name=r"/Users/hanyexu/Desktop/news/rst.csv"
+    #csv_name=r"/Users/hanyexu/Desktop/news/rst.csv"
     ftmp = open(csv_name,'a')
     # ftmp.write('\xEF\xBB\xBF')
     writer=csv.writer(ftmp)
@@ -221,25 +224,25 @@ def search(key_word, cateLabel):
     except urllib2.HTTPError, e:
         print('2.HTTPError = ' + str(e.code))
         ftmp.close()
-        open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','w').close() # reset the visited link for a new keyword
+        open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
         return
     except urllib2.URLError, e:
         if isinstance(e.reason, socket.timeout):
             print("2.URLE timeout1")
         print('2.URLError = ' + str(e.reason))
         ftmp.close()
-        open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','w').close() # reset the visited link for a new keyword
+        open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
         return
     except socket.timeout, e:
         print("2.URLE timeout2")
         ftmp.close()
-        open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','w').close() # reset the visited link for a new keyword
+        open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
         return
     except Exception:
         import traceback
         print('2.generic exception: ' + traceback.format_exc())
         ftmp.close()
-        open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','w').close() # reset the visited link for a new keyword
+        open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
         return
 
     real_visited=0#已扒的txt数量
@@ -261,7 +264,7 @@ def search(key_word, cateLabel):
             contenttitle= re.sub("<[^>]+>","",contenttitle)
             contentlink=str(p_str.get("href"))
             #存放顺利抓取的url，对比
-            visited_url=open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','r')
+            visited_url=open(r''+cwd+'/visited-cn.txt','r')
             visited_url_list=visited_url.readlines()
             visited_url.close()#及时close
             exist=0
@@ -277,8 +280,13 @@ def search(key_word, cateLabel):
                 if "小时前" in contenttime:
                     contenttime = datetime.datetime.now().strftime("%Y年%m月%d日")
                 if "年" in contenttime and "月" in contenttime:
-                    yearnum = contenttime.split('年')[0]
-                    monthnum = contenttime.split('年')[1].split('月')[0]
+                    yearnum = contenttime.split("年")[0]
+                    monthnum = contenttime.split("年")[1].split("月")[0]
+                    if int(yearnum) < 2000 and rawyear in p_str2:
+                        yearnum = rawyear
+                    elif int(yearnum) < 2000 or int(monthnum) > 12 or int(monthnum) < 1:
+                        print "time format error", p_str2
+                        continue
                 else:
                     print "time format error", p_str2
                     continue
@@ -286,13 +294,13 @@ def search(key_word, cateLabel):
                 print(p_str2)
 
                 #hard code for date check for now !! TODO
-                if yearnum == str('2016') and monthnum == str('11'):
-                    continue #skip this month
-                elif yearnum != str('2016') or monthnum != str('10'):
+                if yearnum == rawyear and int(monthnum) > int(rawmon):
+                    continue #skip bigger month
+                elif yearnum != rawyear or monthnum != rawmon:
                     cntTR += 1
                     if cntTR == 3:
                         ftmp.close()
-                        open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','w').close() # reset the visited link for a new keyword
+                        open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
                         return
                     continue
 
@@ -345,7 +353,7 @@ def search(key_word, cateLabel):
 
                 extract_news_content(contentlink,csv_content)#还写入文件
                 visited_url_list.append(contentlink)#访问之
-                visited_url=open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','a')#标记为已访问，永久存防止程序停止后丢失
+                visited_url=open(r''+cwd+'/visited-cn.txt','a')#标记为已访问，永久存防止程序停止后丢失
                 visited_url.write(contentlink+u'\n')
                 visited_url.close()
 
@@ -374,37 +382,44 @@ def search(key_word, cateLabel):
         except urllib2.HTTPError, e:
             print('3.HTTPError = ' + str(e.code))
             ftmp.close()
-            open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','w').close() # reset the visited link for a new keyword
+            open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
             return
         except urllib2.URLError, e:
             if isinstance(e.reason, socket.timeout):
                 print("3.URLE timeout1")
             print('3.URLError = ' + str(e.reason))
             ftmp.close()
-            open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','w').close() # reset the visited link for a new keyword
+            open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
             return
         except socket.timeout, e:
             print("3.URLE timeout2")
             ftmp.close()
-            open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','w').close() # reset the visited link for a new keyword
+            open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
             return
         except Exception:
             import traceback
             print('3.generic exception: ' + traceback.format_exc())
             ftmp.close()
-            open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','w').close() # reset the visited link for a new keyword
+            open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
             return
 
 
     ftmp.close()
-    open(r'/Users/hanyexu/Desktop/news/visited-cn.txt','w').close() # reset the visited link for a new keyword
+    open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
 
 
 if __name__=='__main__':
 
     print('Start search for news from news.baidu.com. Please make sure the directory is correct for storage.')
+
+    rawdate = raw_input('input date you want to search (Form mm-yyyy):')
+    while rawdate == "":
+        rawdate = raw_input('Invalid! Input date you want to search (Form mm-yyyy):')
+    rawmon = rawdate.split("-")[0]
+    rawyear = rawdate.split("-")[1]
     #init the csv file
-    csv_name=r"/Users/hanyexu/Desktop/news/rst.csv"
+    cwd = os.getcwd() # get current path pwd
+    csv_name=r"" + cwd + r"/Baidu-"+rawdate+".csv"
 
     ftmp = open(csv_name,'wb')
     ftmp.write('\xEF\xBB\xBF') # must include this for chinese
@@ -473,11 +488,11 @@ if __name__=='__main__':
                 keyword = keywords.readline().rstrip()
                 continue
             key_word=urllib2.quote(keyword)
-            search(key_word, cateLabel)
+            search(key_word, cateLabel, csv_name, rawmon, rawyear)
             keyword = keywords.readline().rstrip()
         keywords.close()
 
     else:
         key_word=urllib2.quote(raw_word)
         cateLabel = "Unknown"
-        search(key_word, cateLabel)
+        search(key_word, cateLabel, csv_name,rawmon, rawyear)

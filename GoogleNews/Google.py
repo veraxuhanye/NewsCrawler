@@ -4,7 +4,11 @@ import re
 import urllib2
 import gnp
 import csv
+import os
 import chardet
+import socket
+import requests
+import datetime
 import pdfkit
 import articleDateExtractor
 from bs4 import BeautifulSoup
@@ -133,16 +137,21 @@ def extract_news_content(web_url, csv_content):
     request.add_header('User-Agent','Mozilla/5.0 (Windows; U; Windows NT 6.1; en-US; rv:1.9.1.6) Gecko/20091201 Firefox/3.5.6')
     opener = urllib2.build_opener()
     try:
-        html= opener.open(request).read()
+        html= opener.open(request, timeout=2).read()
     except urllib2.HTTPError, e:
-        print('HTTPError = ' + str(e.code))
+        print('1.HTTPError = ' + str(e.code))
         return
     except urllib2.URLError, e:
-        print('URLError = ' + str(e.reason))
+        if isinstance(e.reason, socket.timeout):
+            print("1.URLE timeout1")
+        print('1.URLError = ' + str(e.reason))
+        return
+    except socket.timeout, e:
+        print("1.URLE timeout2")
         return
     except Exception:
         import traceback
-        print('generic exception: ' + traceback.format_exc())
+        print('1.generic exception: ' + traceback.format_exc())
         return
 
     infoencode = chardet.detect(html)['encoding']##通过第3方模块来自动提取网页的编码
@@ -160,81 +169,220 @@ def extract_news_content(web_url, csv_content):
         content_text= re.sub("<[^>]*>","",content_text)
         content_text= re.sub("\n","",content_text)
         content_text= re.sub("  ","",content_text)
-        print(content_text)
+        #print(content_text)
         # file = open(file_name,'a')#append
         # file.write(content_text.encode('utf-8'))
         # file.close()
 
         csv_content.append(content_text.encode("utf-8"))
 
-def search(key_word):
+def search(key_word,cateLabel,csv_name, rawmon,rawyear):
+
+    cwd = os.getcwd() # get current path pwd
 
     #setting up the csv file
-    csv_name=r"/Users/hanyexu/Desktop/newsgoo/rst.csv"
+    #csv_name=r"/Users/hanyexu/Desktop/newsgoo/rst.csv"
+    ftmp = open(csv_name,'a')
+    #ftmp.write('\xEF\xBB\xBF')
+    writer=csv.writer(ftmp)
+    # csv_header=[]
+    # csv_header.append('title')
+    # csv_header.append('author')
+    # csv_header.append('time')
+    # csv_header.append('url')
+    # csv_header.append('context')
+    # writer.writerow(csv_header)
+
+    headers = {'user-agent': 'Mozilla/5.0 (Windows NT 6.1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2228.0 Safari/537.36'}
+
+    real_visited = 0
+
+    for count in range(10):
+        search_url='https://www.google.com/search?tbm=nws&q='+key_word+'&start=' + str(count*10)
+        print(search_url)
+        try:
+            r = requests.get(search_url, headers=headers)
+        except urllib2.HTTPError, e:
+            print('1.HTTPError = ' + str(e.code))
+            ftmp.close()
+            open(r''+cwd+'/visited-cn.txt','w').close()
+            return
+        except urllib2.URLError, e:
+            if isinstance(e.reason, socket.timeout):
+                print("1.URLE timeout1")
+            print('1.URLError = ' + str(e.reason))
+            ftmp.close()
+            open(r''+cwd+'/visited-cn.txt','w').close()
+            return
+        except socket.timeout, e:
+            print("1.URLE timeout2")
+            ftmp.close()
+            open(r''+cwd+'/visited-cn.txt','w').close()
+            return
+        except Exception:
+            import traceback
+            print('1.generic exception: ' + traceback.format_exc())
+            ftmp.close()
+            open(r''+cwd+'/visited-cn.txt','w').close()
+            return
+
+        soup = BeautifulSoup(r.text, "html.parser")
+        content = soup.html.body.find_all('div',{'class':'_cnc'})
+        num = len(content)
+        cntTR = 0
+        for i in range(num):
+            csv_content = []
+            p_str = content[i].find('a')
+            contenttitle = p_str.renderContents()
+            contenttitle=contenttitle.decode('utf-8', 'ignore')
+            contenttitle= re.sub("<[^>]+>","",contenttitle)
+            contentlink=str(p_str.get("href"))
+            #存放顺利抓取的url，对比
+            visited_url=open(r''+cwd+'/visited-cn.txt','r')
+            visited_url_list=visited_url.readlines()
+            visited_url.close()#及时close
+            exist=0
+            for item in visited_url_list:
+                if contentlink==item:
+                    exist=1
+            if exist!=1:#如果未被访问url
+                p_str2= content[i].findAll('span')[0].renderContents()
+                contentauthor=p_str2[:p_str2.find('  ')]#来源
+                contentauthor=contentauthor.decode('utf-8', 'ignore')#时
+                #contenttime=content[i].findAll('span')[2].renderContents()
+                contenttime = articleDateExtractor.extractArticlePublishedDate(contentlink)
+                if contenttime == None:
+                    contenttime=content[i].findAll('span')[2].renderContents()
+                else:
+                    contenttime = contenttime.strftime("%Y-%m-%d")
+
+                if "hours ago" in contenttime:
+                    contenttime = datetime.datetime.now().strftime("%Y-%m-%d ")
+                if "," in contenttime:
+                    contenttime = datetime.datetime.strptime(contenttime, "%b %d, %Y").strftime("%Y-%m-%d ")
+
+                if "-" in contenttime:
+                    contenttime = contenttime.split(" ")[0]
+                    tmptotaltime = contenttime.split("-")
+                    yearnum = tmptotaltime[0]
+                    monthnum = tmptotaltime[1]
+
+                    if int(yearnum) < 2000 or int(monthnum) > 12 or int(monthnum) < 1:
+                        print "time format error ", yearnum, monthnum
+                        continue
+                else:
+                    print "time format error", contenttime
+                    continue
+
+                print("%s %s")%(contentauthor, contenttime)
+
+                if yearnum == rawyear and int(monthnum) > int(rawmon):
+                    continue
+                elif yearnum != rawyear or monthnum != rawmon:
+                    cntTR += 1
+                    if cntTR == 6:
+                        ftmp.close()
+                        open(r''+cwd+'/visited-cn.txt','w').close()
+                        return
+                    continue
+
+                contenttime = contenttime.decode('utf-8', 'ignore')
+
+                real_visited += 1
+
+                # save to csv
+                csv_content.append(real_visited)
+                csv_content.append(cateLabel.encode("utf-8"))
+                csv_content.append(urllib2.unquote(key_word))
+                csv_content.append(contenttitle.encode("utf-8"))
+                csv_content.append(contentauthor.encode("utf-8"))
+                csv_content.append(contenttime)
+                csv_content.append(contentlink)
+                csv_content.append("".encode("utf-8"))
+
+                extract_news_content(contentlink,csv_content)#还写入文件
+                visited_url_list.append(contentlink)#访问之
+                visited_url=open(r''+cwd+'/visited-cn.txt','a')#标记为已访问，永久存防止程序停止后丢失
+                visited_url.write(contentlink+u'\n')
+                visited_url.close()
+
+                writer.writerow(csv_content)
+
+                print '%s - %d' % (urllib2.unquote(key_word),real_visited)
+
+            if real_visited >= 100:
+                break
+        #解析下一页
+        if real_visited >= 100:
+            break
+
+    ftmp.close()
+    open(r''+cwd+'/visited-cn.txt','w').close()
+
+if __name__=='__main__':
+    print('Start search for news from news.google.com. Please make sure the directory is correct for storage.')
+
+    rawdate = raw_input('input date you want to search (Form mm-yyyy):')
+    while rawdate == "":
+        rawdate = raw_input('Invalid! Input date you want to search (Form mm-yyyy):')
+    rawmon = rawdate.split("-")[0]
+    rawyear = rawdate.split("-")[1]
+
+    cwd = os.getcwd() # get current path pwd
+    csv_name=r"" + cwd + r"/Google-"+rawdate+".csv"
+
     ftmp = open(csv_name,'wb')
-    ftmp.write('\xEF\xBB\xBF')
+    ftmp.write('\xEF\xBB\xBF') # must include this for chinese
     writer=csv.writer(ftmp)
     csv_header=[]
+    csv_header.append('Number')
+    csv_header.append('Category')
+    csv_header.append('Keyword')
     csv_header.append('title')
     csv_header.append('author')
     csv_header.append('time')
     csv_header.append('url')
+    csv_header.append('locations')
     csv_header.append('context')
     writer.writerow(csv_header)
-
-    jresult = gnp.get_google_news_query(key_word) # jresult is inform of json
-    test = jresult['stories']
-    nums = len(test)
-    for i in range(nums):
-        csv_content=[] # initialization for cvs row
-        item = test[i]
-        contenttitle=item['title']
-        contenttitle=contenttitle.decode('utf-8', 'ignore')
-        contentauthor=item['source']
-        contentauthor=contentauthor.decode('utf-8', 'ignore')
-        contentlink=item['link']
-        content=item['content_snippet']
-        content=content.decode('utf-8', 'ignore')
-
-        #get the article time
-        contenttime = articleDateExtractor.extractArticlePublishedDate(contentlink)
-
-        # save to csv
-        csv_content.append(contenttitle.encode("utf-8"))
-        csv_content.append(contentauthor.encode("utf-8"))
-        csv_content.append(contenttime)
-        csv_content.append(contentlink)
-        #csv_content.append(content.encode("utf-8"))
-
-        extract_news_content(contentlink,csv_content)#还写入文件
-
-        # #save pdf
-        # options = {
-        #     'quiet': '',
-        #     'no-background': '',
-        #     'disable-external-links':'',
-        #     'disable-forms': '',
-        #     'no-images': '',
-        #     'disable-internal-links': '',
-        #     'load-error-handling':'skip',
-        #     'disable-local-file-access':''
-        # }
-        # pdf_name=r"/Users/hanyexu/Desktop/newsgoo/pdfs/%d.pdf"%(i+1)
-        # try:
-        #     pdfkit.from_url(contentlink, pdf_name,options=options)
-        #     #pdfkit.from_url('baidu.com', 'out.pdf')
-        # except Exception:
-        #     print("wkhtmltopdf Exception!")
-
-        #save pdf
-        generatePDF(contentlink, i+1)
-
-        writer.writerow(csv_content)
-
     ftmp.close()
 
-if __name__=='__main__':
-    print('Start search for news from news.google.com. Please make sure the directory is correct for storage.')
     raw_word=raw_input('input key word:')
-    key_word=urllib2.quote(raw_word)
-    search(key_word)
+
+    if(raw_word == ""):
+
+        keywordlist = []
+        keywordloc = []
+
+        keywords = open('./keywordsEnglish', 'r')
+        keyword = keywords.readline().rstrip()
+
+        while(keyword):
+            if keyword != "":
+                keywordlist.append(keyword)
+            keyword = keywords.readline().rstrip()
+
+        keywords.close()
+
+        keywords1 = open('./keywordsLoc', 'r')
+        keyword1 = keywords1.readline().rstrip()
+
+        while(keyword1):
+            if keyword1 != "":
+                keywordloc.append(keyword1)
+            keyword1 = keywords1.readline().rstrip()
+
+        keywords1.close()
+
+        for word in keywordlist:
+            for loc in keywordloc:
+                cateLabel = word
+                searchword = word + " " + loc
+
+                key_word = urllib2.quote(searchword)
+                #key_word = searchword
+                search(key_word,cateLabel,csv_name, rawmon,rawyear)
+    else:
+        key_word=urllib2.quote(raw_word)
+        cateLabel = "Unknown"
+        search(key_word,cateLabel,csv_name, rawmon,rawyear)
