@@ -1,0 +1,16 @@
+-- dependencies --
+1. beautifulsoup4-4.5.0 ( BeautifulSoup 3.2.1 and bs4 4.5.1) https://www.crummy.com/software/BeautifulSoup/bs4/doc.zh/
+2. urllib2 2.7
+3. csv 1.0
+4. pip install os
+5. chardet 2.3.0
+6. python socket
+7. requests 2.3.0
+8. python datetime
+9. articleDateExtractor 0.17
+10. selenium 3.0.1
+11. python httplib
+12. chardet 2.3.0
+13. https://github.com/letiantian/TextRank4ZH
+14. python TimeoutException
+

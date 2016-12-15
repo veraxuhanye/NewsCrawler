@@ -13,6 +13,7 @@ import pdfkit
 import articleDateExtractor
 from bs4 import BeautifulSoup
 from selenium import webdriver
+from textrank4zh import TextRank4Keyword, TextRank4Sentence
 import codecs
 import json
 
@@ -175,21 +176,19 @@ def extract_news_content(web_url, csv_content):
         # file.write(content_text.encode('utf-8'))
         # file.close()
 
-        tmpcontent = content_text
-        contentarray = tmpcontent.lower().split(" ")
-
+        # start analysis text
+        encodetext = content_text
+        tr4w.analyze(text=encodetext, lower=True, window=2)
         LWords = set()
-        for words in contentarray:
-            if words in LocationDic:
-                LWords.add(words)
+        for words in tr4w.words_no_stop_words:
+            for word in words:
+                if word in LocationDic:
+                    LWords.add(word)
 
         LString = "/".join(LWords)
 
         csv_content.append(LString.encode("utf-8"))
         csv_content.append(content_text.encode("utf-8"))
-
-        if(csv_content.__len__() > 9):
-            print("!!!Catch")
 
 def search(key_word,cateLabel,csv_name, rawmon,rawyear):
 
@@ -343,7 +342,7 @@ if __name__=='__main__':
     rawyear = rawdate.split("-")[1]
 
     cwd = os.getcwd() # get current path pwd
-    csv_name=r"" + cwd + r"/Google-"+rawdate+".csv"
+    csv_name=r"" + cwd + r"/GoogleCH-"+rawdate+".csv"
 
     ftmp = open(csv_name,'wb')
     ftmp.write('\xEF\xBB\xBF') # must include this for chinese
@@ -363,7 +362,7 @@ if __name__=='__main__':
 
     #build a dictionary for provinces and cities
     LocationDic = {}
-    ltmp = open('./LNameE', 'r')
+    ltmp = open('./LName', 'r')
     lname = ltmp.readline().rstrip().decode('utf-8')
     while(lname):
         LocationDic[lname] = 1
@@ -372,39 +371,51 @@ if __name__=='__main__':
 
     raw_word=raw_input('input key word:')
 
+    tr4w = TextRank4Keyword() #for text NLP analysis
+
     if(raw_word == ""):
 
-        keywordlist = []
-        keywordloc = []
-
-        keywords = open('./keywordsEnglish', 'r')
+        keywords = open('./keywords', 'r')
         keyword = keywords.readline().rstrip()
 
         while(keyword):
-            if keyword != "":
-                keywordlist.append(keyword)
+            if keyword == "General":
+                cateLabel = "General"
+                keyword = keywords.readline().rstrip()
+                continue
+            elif keyword == "Buddhism":
+                cateLabel = "Buddhism"
+                keyword = keywords.readline().rstrip()
+                continue
+            elif keyword == "Islam":
+                cateLabel = "Islam"
+                keyword = keywords.readline().rstrip()
+                continue
+            elif keyword == "Daoism":
+                cateLabel = "Daoism"
+                keyword = keywords.readline().rstrip()
+                continue
+            elif keyword == "Christianity":
+                cateLabel = "Christianity"
+                keyword = keywords.readline().rstrip()
+                continue
+            elif keyword == "Confucian":
+                cateLabel = "Confucian"
+                keyword = keywords.readline().rstrip()
+                continue
+            elif keyword == "Black":
+                cateLabel = "Black"
+                keyword = keywords.readline().rstrip()
+                continue
+            elif keyword == "":
+                keyword = keywords.readline().rstrip()
+                continue
+            key_word=urllib2.quote(keyword)
+            search(key_word, cateLabel, csv_name, rawmon, rawyear)
             keyword = keywords.readline().rstrip()
 
         keywords.close()
 
-        keywords1 = open('./keywordsLoc', 'r')
-        keyword1 = keywords1.readline().rstrip()
-
-        while(keyword1):
-            if keyword1 != "":
-                keywordloc.append(keyword1)
-            keyword1 = keywords1.readline().rstrip()
-
-        keywords1.close()
-
-        for word in keywordlist:
-            for loc in keywordloc:
-                cateLabel = word
-                searchword = word + " " + loc
-
-                key_word = urllib2.quote(searchword)
-                #key_word = searchword
-                search(key_word,cateLabel,csv_name, rawmon,rawyear)
     else:
         key_word=urllib2.quote(raw_word)
         cateLabel = "Unknown"

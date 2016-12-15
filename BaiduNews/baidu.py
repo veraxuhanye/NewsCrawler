@@ -175,6 +175,7 @@ def extract_news_content(web_url, csv_content):
         content_text= re.sub("<[^>]*>","",content_text)
         content_text= re.sub("\n","",content_text)
         content_text= re.sub(" ","",content_text)
+        content_text= re.sub("\t","",content_text)
         #print(content_text)
 
         # start analysis text
