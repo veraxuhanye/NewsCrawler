@@ -1,16 +1,21 @@
 #coding:utf-8
 import re
 import io
+import sys
 import os
+import os.path
 import urllib2
 import httplib
 import chardet
 import csv
 import time
 import datetime
+import requests
 import socket
+import logging
 import pdfkit
 import articleDateExtractor
+import thulac
 from bs4 import BeautifulSoup
 from textrank4zh import TextRank4Keyword, TextRank4Sentence
 from selenium import webdriver
@@ -43,7 +48,7 @@ def generatePDF(weburl, filename):
         driver.get(weburl)
     except TimeoutException:
         driver.execute_script("window.stop();")
-        print("time out for loading web page")
+        logging.debug("time out for loading web page")
     pageFormat = '''this.paperSize = {format: "A4", orientation: "portrait" };'''
     driver.execute('executePhantomScript', {'script': pageFormat, 'args' : [] })
     #execute(pageFormat, [])
@@ -140,26 +145,26 @@ def extract (content):
 #输入url，将其新闻页的正文输入txt
 def extract_news_content(web_url, csv_content):
     request = urllib2.Request(web_url)
-
+    logging.debug(">>>Parse content")
     #在请求加上头信息，伪装成浏览器访问
     request.add_header('User-Agent','Mozilla/5.0 (Windows; U; Windows NT 6.1; en-US; rv:1.9.1.6) Gecko/20091201 Firefox/3.5.6')
     opener = urllib2.build_opener()
     try:
         html= opener.open(request, timeout=2).read()
     except urllib2.HTTPError, e:
-        print('1.HTTPError = ' + str(e.code))
+        logging.debug('1.HTTPError = ' + str(e.code))
         return
     except urllib2.URLError, e:
         if isinstance(e.reason, socket.timeout):
-            print("1.URLE timeout1")
-        print('1.URLError = ' + str(e.reason))
+            logging.debug("1.URLE timeout1")
+        logging.debug('1.URLError = ' + str(e.reason))
         return
     except socket.timeout, e:
-        print("1.URLE timeout2")
+        logging.debug("1.URLE timeout2")
         return
     except Exception:
         import traceback
-        print('1.generic exception: ' + traceback.format_exc())
+        logging.debug('1.generic exception: ' + traceback.format_exc())
         return
 
     infoencode = chardet.detect(html)['encoding']##通过第3方模块来自动提取网页的编码
@@ -178,83 +183,91 @@ def extract_news_content(web_url, csv_content):
         content_text= re.sub("\t","",content_text)
         #print(content_text)
 
-        # start analysis text
+        #--- start analysis text---
         encodetext = content_text
-        tr4w.analyze(text=encodetext, lower=True, window=2)
+        #tr4w.analyze(text=encodetext, lower=True, window=2)
+        try:
+            breakdowns = thu1.cut(encodetext, text=False)
+        except:
+            logging.debug("Error of extract locations")
+            LString = ""
+            csv_content.append(LString.encode("utf-8"))
+            csv_content.append(content_text.encode("utf-8"))
+            return
+
         LWords = set()
-        for words in tr4w.words_no_stop_words:
-            for word in words:
-                if word in LocationDic:
-                    LWords.add(word)
+        for words in breakdowns:
+            if len(words) == 2 and words[1] == 'ns':
+                LWords.add(words[0])
+        # for words in tr4w.words_no_stop_words:
+        #     for word in words:
+        #         if word in LocationDic:
+        #             LWords.add(word)
 
         LString = "/".join(LWords)
-        # file = open(file_name,'a')#append
-        # file.write(content_text.encode('utf-8'))
-        # file.close()
+
+        logging.debug(">>>Finished Parse content")
 
         csv_content.append(LString.encode("utf-8"))
         csv_content.append(content_text.encode("utf-8"))
 
 
-#抓取百度新闻搜索结果:中文搜索，前10页，
 def search(key_word, cateLabel, csv_name, rawmon, rawyear):
 
     cwd = os.getcwd() # get current path pwd
+    open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
 
-    '''
-    write to csv file
-    '''
-    #csv_name=r"/Users/hanyexu/Desktop/news/rst.csv"
+    #--- write to current CSV---
     ftmp = open(csv_name,'a')
-    # ftmp.write('\xEF\xBB\xBF')
     writer=csv.writer(ftmp)
-    # csv_header=[]
-    # csv_header.append('Number')
-    # csv_header.append('Category')
-    # csv_header.append('Keyword')
-    # csv_header.append('title')
-    # csv_header.append('author')
-    # csv_header.append('time')
-    # csv_header.append('url')
-    # csv_header.append('context')
-    # writer.writerow(csv_header)
 
+    #--- Inite search engine---
     search_url='http://news.baidu.com/ns?word=key_word&tn=news&from=news&cl=2&rn=20&ct=1'
+    req =  urllib2.Request(search_url.replace('key_word',key_word))
+    req.add_header('User-Agent','Mozilla/5.0 (Windows; U; Windows NT 6.1; en-US; rv:1.9.1.6) Gecko/20091201 Firefox/3.5.6')
+    opener = urllib2.build_opener()
     try:
-        req=urllib2.urlopen(search_url.replace('key_word',key_word))
+        html= opener.open(req).read()
+        #req=urllib2.urlopen(search_url.replace('key_word',key_word))
+        #req = urllib2.urlopen(search_url)
+        #req = requests.get(search_url, headers=headers)
     except urllib2.HTTPError, e:
-        print('2.HTTPError = ' + str(e.code))
+        logging.debug('2.HTTPError = ' + str(e.code))
         ftmp.close()
         open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
         return
     except urllib2.URLError, e:
         if isinstance(e.reason, socket.timeout):
-            print("2.URLE timeout1")
-        print('2.URLError = ' + str(e.reason))
+            logging.debug("2.URLE timeout1")
+        logging.debug('2.URLError = ' + str(e.reason))
         ftmp.close()
         open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
         return
     except socket.timeout, e:
-        print("2.URLE timeout2")
+        logging.debug("2.URLE timeout2")
         ftmp.close()
         open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
         return
     except Exception:
         import traceback
-        print('2.generic exception: ' + traceback.format_exc())
+        logging.debug('2.generic exception: ' + traceback.format_exc())
         ftmp.close()
         open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
         return
 
+    #--- start crawling ---
+    logging.debug(">>>Search page Crawled")
     real_visited=0#已扒的txt数量
-    for count in range(8):#前10页
+    for count in range(8):
         cntTR = 0 # a variable to count time range for every page
-        html=req.read()
+        if html == "":
+            logging.debug("Error: Nothing in the HTML.")
+            return
         #print(html)
         soup=BeautifulSoup(html,"html.parser")
         #content = soup.html.body.find_all('h3', {'class' : 'c-title'})
-        content = soup.html.body.find_all('div', {'class' : 'result'})
         #content  = soup.findAll('li', {'class': 'result'}) #resultset object
+        content = soup.html.body.find_all('div', {'class' : 'result'})
         num = len(content)
         for i in range(num):
             csv_content=[] # initialization for cvs row
@@ -264,7 +277,6 @@ def search(key_word, cateLabel, csv_name, rawmon, rawyear):
             contenttitle=contenttitle.decode('utf-8', 'ignore')#need it
             contenttitle= re.sub("<[^>]+>","",contenttitle)
             contentlink=str(p_str.get("href"))
-            #存放顺利抓取的url，对比
             visited_url=open(r''+cwd+'/visited-cn.txt','r')
             visited_url_list=visited_url.readlines()
             visited_url.close()#及时close
@@ -286,41 +298,30 @@ def search(key_word, cateLabel, csv_name, rawmon, rawyear):
                     if int(yearnum) < 2000 and rawyear in p_str2:
                         yearnum = rawyear
                     elif int(yearnum) < 2000 or int(monthnum) > 12 or int(monthnum) < 1:
-                        print "time format error", p_str2
+                        logging.debug("time format error"+p_str2)
                         continue
                 else:
-                    print "time format error", p_str2
+                    logging.debug("time format error"+ p_str2)
                     continue
 
-                print(p_str2)
+                logging.debug("News from "+p_str2)
 
-                #hard code for date check for now !! TODO
+                #--- check time range ----
                 if yearnum == rawyear and int(monthnum) > int(rawmon):
                     continue #skip bigger month
                 elif yearnum != rawyear or monthnum != rawmon:
                     cntTR += 1
-                    if cntTR == 3:
-                        ftmp.close()
-                        open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
-                        return
+                    # if cntTR == 5:
+                    #     open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
+                    #     logging.debug(">>>Articles are out of time Range")
+                    #     break
                     continue
 
 
                 contenttime=contenttime.decode('utf-8', 'ignore')
-                #第i篇新闻，filename="D:\\Python27\\tiaozhanbei\\newscn\\%d.txt"%(i)
-                #file = open(filename,'w'),一个txt一篇新闻
                 real_visited+=1
-                # file_name=r"/Users/hanyexu/Desktop/news/txts/%s_%d.txt"%(key_word,real_visited)
-                # file = open(file_name,'w')#file是保留字吗？为什么可以用file这个变量（还是仅此一个变量）？
-                # file.write(contenttitle.encode('utf-8'))
-                # file.write(u'\n')
-                # file.write(contentauthor.encode('utf-8'))
-                # file.write(u'\n')
-                # file.write(contenttime.encode('utf-8'))
-                # file.write(u'\n'+contentlink+u'\n')
-                # file.close()
 
-                # save to csv
+                #---save to csv----
                 csv_content.append(real_visited)
                 csv_content.append(cateLabel.encode("utf-8"))
                 csv_content.append(urllib2.unquote(key_word))
@@ -329,7 +330,7 @@ def search(key_word, cateLabel, csv_name, rawmon, rawyear):
                 csv_content.append(contenttime.encode("utf-8"))
                 csv_content.append(contentlink)
 
-                # #save pdf
+                # #save pdf --- TODO: might need later
                 # options = {
                 #     'quiet': '',
                 #     'no-background': '',
@@ -351,22 +352,24 @@ def search(key_word, cateLabel, csv_name, rawmon, rawyear):
                 #pdfname = "%s_%d"%(urllib2.unquote(key_word),real_visited)
                 #generatePDF(contentlink, pdfname)
 
-
+                # --- extract the news content
                 extract_news_content(contentlink,csv_content)#还写入文件
                 visited_url_list.append(contentlink)#访问之
                 visited_url=open(r''+cwd+'/visited-cn.txt','a')#标记为已访问，永久存防止程序停止后丢失
                 visited_url.write(contentlink+u'\n')
                 visited_url.close()
 
-                # test for write to csv
+                # --- write to csv ---
                 writer.writerow(csv_content)
 
-                print '%s - %d' % (urllib2.unquote(key_word),real_visited)
+                logging.debug( '%s - %d' % (urllib2.unquote(key_word),real_visited))
 
             if real_visited >=100:
+                logging.debug(">>>100 articles visited.")
                 break
             #解析下一页
         if real_visited >=100:
+            logging.debug(">>>100 articles visited.break.")
             break
         if count==0:
             next_num=0
@@ -375,52 +378,77 @@ def search(key_word, cateLabel, csv_name, rawmon, rawyear):
         try:
             next_page='http://news.baidu.com'+soup('a',{'href':True,'class':'n'})[next_num]['href'] # search for the next page
         except IndexError:
-            print "no next page!!!"
+            logging.debug("no next page!!!")
             return
-        print next_page
+        #print next_page
+        logging.debug(">>>Parse next page.")
+
+        req =  urllib2.Request(next_page)
+        req.add_header('User-Agent','Mozilla/5.0 (Windows; U; Windows NT 6.1; en-US; rv:1.9.1.6) Gecko/20091201 Firefox/3.5.6')
+        opener = urllib2.build_opener()
         try:
-            req=urllib2.urlopen(next_page)
+            html= opener.open(req).read()
         except urllib2.HTTPError, e:
-            print('3.HTTPError = ' + str(e.code))
+            logging.debug('3.HTTPError = ' + str(e.code))
             ftmp.close()
             open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
             return
         except urllib2.URLError, e:
             if isinstance(e.reason, socket.timeout):
-                print("3.URLE timeout1")
-            print('3.URLError = ' + str(e.reason))
+                logging.debug("3.URLE timeout1")
+            logging.debug('3.URLError = ' + str(e.reason))
             ftmp.close()
             open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
             return
         except socket.timeout, e:
-            print("3.URLE timeout2")
+            logging.debug("3.URLE timeout2")
             ftmp.close()
             open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
             return
         except Exception:
             import traceback
-            print('3.generic exception: ' + traceback.format_exc())
+            logging.debug('3.generic exception: ' + traceback.format_exc())
             ftmp.close()
             open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
             return
 
-
+    logging.debug(">>>Finished current searching word.")
+    #--- check if this keyword has no record---
+    if real_visited < 5:
+        fback= open(r""+os.getcwd()+r"/Backup/KeywordsBackup.txt",'a')
+        fback.write(urllib2.unquote(key_word+"\n").encode('utf-8'))
+        fback.close()
     ftmp.close()
     open(r''+cwd+'/visited-cn.txt','w').close() # reset the visited link for a new keyword
 
 
 if __name__=='__main__':
 
-    print('Start search for news from news.baidu.com. Please make sure the directory is correct for storage.')
-
-    rawdate = raw_input('input date you want to search (Form mm-yyyy):')
+    print('>>>Start searching for news from news.baidu.com. Please make sure the directory is correct for storage.')
+    rawdate = raw_input('Please input date you want to search (Format mm-yyyy):\n')
     while rawdate == "":
-        rawdate = raw_input('Invalid! Input date you want to search (Form mm-yyyy):')
+        rawdate = raw_input('Invalid! Input date you want to search (Format mm-yyyy):\n')
     rawmon = rawdate.split("-")[0]
     rawyear = rawdate.split("-")[1]
-    #init the csv file
+
+    #--- init the csv file ---
     cwd = os.getcwd() # get current path pwd
-    csv_name=r"" + cwd + r"/Baidu-"+rawdate+".csv"
+    csv_name=r"" + cwd + r"/CSV/Baidu-"+rawdate+".csv"
+    print(">>>Initial CSV file for storage, file name is: " + csv_name)
+
+    if os.path.exists(csv_name):
+        print("File already exists, Do you want to override it?\n")
+        rawans = raw_input('Yes/No\n')
+        if rawans == 'Yes':
+            os.remove(csv_name)
+        elif rawans == 'No':
+            print("Program Exit. Please run the script again.")
+            sys.exit()
+        else:
+            print("Unknown response. Program Exit.")
+            sys.exit()
+    #--- clean back up file ---
+    fback= open(r""+os.getcwd()+r"/Backup/KeywordsBackup.txt",'w').close()
 
     ftmp = open(csv_name,'wb')
     ftmp.write('\xEF\xBB\xBF') # must include this for chinese
@@ -438,25 +466,41 @@ if __name__=='__main__':
     writer.writerow(csv_header)
     ftmp.close()
 
-    #build a dictionary for provinces and cities
-    LocationDic = {}
-    ltmp = open('./LName', 'r')
-    lname = ltmp.readline().rstrip().decode('utf-8')
-    while(lname):
-        LocationDic[lname] = 1
-        lname = ltmp.readline().rstrip().decode('utf-8')
-    ltmp.close()
+    #---build a dictionary for provinces and cities --- TODO: not use now for NLP lib
+    # LocationDic = {}
+    # ltmp = open('./LName', 'r')
+    # lname = ltmp.readline().rstrip().decode('utf-8')
+    # while(lname):
+    #     LocationDic[lname] = 1
+    #     lname = ltmp.readline().rstrip().decode('utf-8')
+    # ltmp.close()
+    #---------------------------------------------------
 
-    raw_word=raw_input('input key word:') #get the keyword from type in
+    print(">>>Initial NLP settings")
+    thu1 = thulac.thulac()
 
+    raw_word=raw_input('Please input a key word, or use ENTER to load default keywords list:\n') #get the keyword from type in
+
+    #--- driver for PDF generator ----
     #driver = webdriver.PhantomJS(service_args=['--ignore-ssl-errors=true', '--ssl-protocol=ANY']) #for pdf generation
-    tr4w = TextRank4Keyword() #for text NLP analysis
+    #---------------------------------
 
+    #--- NLP libarary -- TODO: not working since 01/2017
+    #tr4w = TextRank4Keyword() #for text NLP analysis
+    #-------------------
+
+    #initial log #
+    logfn = r"" + os.getcwd() + r"/Logs/" +datetime.datetime.now().strftime("%Y-%m-%d-%H-%M")+".log"
+    logging.basicConfig(filename=logfn, level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
+    print("Start the program")
+
+    #--- Load default keyword list ---
     if(raw_word == ""):
+        logging.debug("Loading default keywords")
         keywords = open('./keywords', 'r')
         keyword = keywords.readline().rstrip()
         while(keyword):
-
             if keyword == "General":
                 cateLabel = "General"
                 keyword = keywords.readline().rstrip()
@@ -488,12 +532,18 @@ if __name__=='__main__':
             elif keyword == "":
                 keyword = keywords.readline().rstrip()
                 continue
+
+            logging.debug(">>>Searching for keyword: " + keyword)
             key_word=urllib2.quote(keyword)
             search(key_word, cateLabel, csv_name, rawmon, rawyear)
+            logging.debug(">>>Finished this keyword ")
             keyword = keywords.readline().rstrip()
         keywords.close()
-
+    #--- Serach for inputed keywords---
     else:
+        logging.debug(">>>search for customized word")
         key_word=urllib2.quote(raw_word)
         cateLabel = "Unknown"
         search(key_word, cateLabel, csv_name,rawmon, rawyear)
+
+    print("Finish Crawling news from news.baidu.com.")
